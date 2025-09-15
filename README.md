@@ -1,9 +1,13 @@
-# Grupo-10-RSD
+# 📌 Grupo-10-RSD
 
-Alunos:
-Erick Belo
-João Marcelo Montenegro
-Rodrigo Torres
-Victor Vilela
-João Victor Nunes
-Rafael Fernandes
+---
+
+## 👥 Integrantes
+- Erick Belo  
+- João Marcelo Montenegro  
+- Rodrigo Torres  
+- Victor Vilela  
+- João Victor Nunes  
+- Rafael Fernandes  
+
+---
