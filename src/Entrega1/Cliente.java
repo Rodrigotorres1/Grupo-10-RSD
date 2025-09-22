@@ -6,6 +6,9 @@ import java.util.Scanner;
 
 public class Cliente {
 
+    private static final int TAMANHO_MINIMO = 30;
+    private static final int TAMANHO_MAXIMO = 100;
+
     public static void main(String[] args) {
         String enderecoServidor = "localhost";
         int porta = 1234;
@@ -14,10 +17,9 @@ public class Cliente {
 
         String modoOperacao = exibirMenuModo(scanner);
 
-        System.out.print("Digite o tamanho máximo (por exemplo: 3): ");
-        String tamanhoMaximo = scanner.nextLine().trim();
+        int tamanhoConfigurado = Math.max(TAMANHO_MINIMO, TAMANHO_MAXIMO);
 
-        String mensagemHandshake = montarHandshake(modoOperacao, tamanhoMaximo);
+        String mensagemHandshake = montarHandshake(modoOperacao, String.valueOf(tamanhoConfigurado));
 
         try (Socket socket = new Socket(enderecoServidor, porta);
              BufferedReader entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -43,10 +45,10 @@ public class Cliente {
     }
 
     public static String exibirMenuModo(Scanner scanner) {
-        System.out.println("escolha o modo de operacao:");
+        System.out.println("Escolha o modo de operação:");
         System.out.println("1. individual");
         System.out.println("2. grupo");
-        System.out.print("escolha uma opcao: ");
+        System.out.print("Escolha uma opção: ");
         String escolha = scanner.nextLine().trim();
 
         switch (escolha) {
@@ -55,7 +57,7 @@ public class Cliente {
             case "2":
                 return "grupo";
             default:
-                System.out.println("apcao invalida. usando modo padrao: individual.");
+                System.out.println("Opção inválida. Usando modo padrão: individual.");
                 return "individual";
         }
     }
