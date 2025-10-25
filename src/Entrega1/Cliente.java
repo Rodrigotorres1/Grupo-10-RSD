@@ -1,68 +1,148 @@
-package Entrega1;
+package entrega2;
 
 import java.io.*;
 import java.net.*;
-import java.util.Scanner;
+import java.util.*;
 
 public class Cliente {
 
-    private static final int TAMANHO_MINIMO = 30;
-    private static final int TAMANHO_MAXIMO = 100;
+	public static String exibirMenuModo(Scanner input) {
+		System.out.println("Escolha o modo de operação:");
+		System.out.println("1. Individual");
+		System.out.println("2. Grupo");
+		System.out.print("Escolha uma opção: ");
+		String escolha = input.nextLine().trim();
 
-    public static void main(String[] args) {
-        String enderecoServidor = "localhost";
-        int porta = 1234;
+		switch (escolha) {
+		case "1":
+			return "individual";
+		case "2":
+			return "grupo";
+		default:
+			System.out.println("Opção inválida. Usando modo padrão: individual.");
+			return "individual";
+		}
+	}
 
-        Scanner scanner = new Scanner(System.in);
+	public static void main(String[] args) {
 
-        String modoOperacao = exibirMenuModo(scanner);
+		String hostServidor = "localhost";
+		int portaServidor = 1234;
 
-        int tamanhoConfigurado = Math.max(TAMANHO_MINIMO, TAMANHO_MAXIMO);
+		Scanner leitorConsole = new Scanner(System.in);
+		String tipoConexao = exibirMenuModo(leitorConsole);
 
-        String mensagemHandshake = montarHandshake(modoOperacao, String.valueOf(tamanhoConfigurado));
+		System.out.print("Digite o tamanho máximo (ex: 3): ");
+		int limiteFragmento = Integer.parseInt(leitorConsole.nextLine().trim());
 
-        try (Socket socket = new Socket(enderecoServidor, porta);
-             BufferedReader entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-             PrintWriter saida = new PrintWriter(socket.getOutputStream(), true)) {
+		try (Socket conexaoSocket = new Socket(hostServidor, portaServidor);
+				BufferedReader leitorSocket = new BufferedReader(new InputStreamReader(conexaoSocket.getInputStream()));
+				PrintWriter escritorSocket = new PrintWriter(conexaoSocket.getOutputStream(), true)) {
 
-            System.out.println("Conectado ao servidor!");
-            System.out.println("Enviando handshake: " + mensagemHandshake);
-            saida.println(mensagemHandshake);
+			System.out.println("Conectado ao servidor!");
 
-            String resposta = entrada.readLine();
-            if (resposta != null && resposta.startsWith("OK")) {
-                System.out.println("Handshake confirmado pelo servidor!");
-                System.out.println("Configurações aceitas: " + resposta);
-            } else {
-                System.out.println("Falha no handshake: " + resposta);
-            }
+			String dadosHandshake = tipoConexao + ":" + limiteFragmento;
+			escritorSocket.println(dadosHandshake);
 
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+			String respostaServidor = leitorSocket.readLine();
+			if (!"OK".equals(respostaServidor)) {
+				System.out.println("Handshake falhou.");
+				return;
+			}
 
-        scanner.close();
-    }
+			System.out.println("Handshake confirmado!");
 
-    public static String exibirMenuModo(Scanner scanner) {
-        System.out.println("Escolha o modo de operação:");
-        System.out.println("1. individual");
-        System.out.println("2. grupo");
-        System.out.print("Escolha uma opção: ");
-        String escolha = scanner.nextLine().trim();
+			int numSequencia = 0;
 
-        switch (escolha) {
-            case "1":
-                return "individual";
-            case "2":
-                return "grupo";
-            default:
-                System.out.println("Opção inválida. Usando modo padrão: individual.");
-                return "individual";
-        }
-    }
+			while (true) {
+				System.out.print("Digite a mensagem para enviar ao servidor (ou 'sair' para encerrar): ");
+				String inputUsuario = leitorConsole.nextLine();
 
-    public static String montarHandshake(String modo, String tamanho) {
-        return modo + ":" + tamanho;
-    }
+				if (inputUsuario.equalsIgnoreCase("sair")) {
+					escritorSocket.println("FIM");
+					break;
+				}
+
+				if (tipoConexao.equals("individual")) {
+					System.out.println("\nModo INDIVIDUAL:");
+					Map<Integer, String> bufferMensagem = new TreeMap<>();
+
+					for (int i = 0; i < inputUsuario.length(); i += limiteFragmento) {
+						int fim = Math.min(i + limiteFragmento, inputUsuario.length());
+						String payload = inputUsuario.substring(i, fim);
+						String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
+
+						escritorSocket.println(segmento);
+						System.out.println("Enviado: " + segmento);
+
+						String confirmacao = leitorSocket.readLine();
+						System.out.println("Recebido do servidor: " + confirmacao);
+
+						bufferMensagem.put(numSequencia, payload);
+						numSequencia++;
+
+						try {
+							Thread.sleep(500);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+					}
+
+					escritorSocket.println("END");
+
+					System.out.print("Mensagem reconstruída (cliente): ");
+					for (String parte : bufferMensagem.values()) {
+						System.out.print(parte);
+					}
+					System.out.println();
+
+				} else {
+					System.out.println("\nModo GRUPO:");
+					Map<Integer, String> mapPacotesEnviados = new TreeMap<>();
+					List<Integer> listaSequencias = new ArrayList<>();
+
+					for (int i = 0; i < inputUsuario.length(); i += limiteFragmento) {
+						int fim = Math.min(i + limiteFragmento, inputUsuario.length());
+						String payload = inputUsuario.substring(i, fim);
+						String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
+
+						escritorSocket.println(segmento);
+						System.out.println("Enviado: " + segmento);
+
+						mapPacotesEnviados.put(numSequencia, payload);
+						listaSequencias.add(numSequencia);
+						numSequencia++;
+					}
+
+					System.out.println("Todos os pacotes foram enviados. Aguardando ACKs...\n");
+
+					Map<Integer, String> mapPacotesConfirmados = new TreeMap<>();
+					for (int i = 0; i < listaSequencias.size(); i++) {
+						String confirmacao = leitorSocket.readLine();
+						System.out.println("Recebido do servidor: " + confirmacao);
+
+						if (confirmacao != null && confirmacao.startsWith("ACK:")) {
+							int seqConfirmada = Integer.parseInt(confirmacao.split(":")[1]);
+							if (mapPacotesEnviados.containsKey(seqConfirmada)) {
+								mapPacotesConfirmados.put(seqConfirmada, mapPacotesEnviados.get(seqConfirmada));
+							}
+						}
+					}
+
+					escritorSocket.println("END");
+
+					System.out.print("Mensagem reconstruída (cliente): ");
+					for (String parte : mapPacotesConfirmados.values()) {
+						System.out.print(parte);
+					}
+					System.out.println();
+				}
+			}
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+		leitorConsole.close();
+	}
 }
