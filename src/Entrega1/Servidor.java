@@ -1,54 +1,90 @@
-package Entrega1;
+package entrega2;
 
 import java.io.*;
 import java.net.*;
+import java.util.*;
 
 public class Servidor {
-    public static void main(String[] args) {
-        int porta = 1234;
+	public static void main(String[] args) {
 
-        try (ServerSocket serverSocket = new ServerSocket(porta)) {
-            System.out.println("Servidor aguardando conexão na porta " + porta + "...");
+		int portaLocal = 1234;
 
-            try (Socket socket = serverSocket.accept();
-                 BufferedReader entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                 PrintWriter saida = new PrintWriter(socket.getOutputStream(), true)) {
+		try (ServerSocket socketEscuta = new ServerSocket(portaLocal)) {
+			System.out.println("Servidor aguardando conexão na porta " + portaLocal + "...");
 
-                System.out.println("Cliente conectado: " + socket.getInetAddress());
+			try (Socket socketCliente = socketEscuta.accept();
+					BufferedReader leitorCliente = new BufferedReader(
+							new InputStreamReader(socketCliente.getInputStream()));
+					PrintWriter escritorCliente = new PrintWriter(socketCliente.getOutputStream(), true)) {
 
-                String handshake = entrada.readLine();
-                System.out.println("Handshake recebido: " + handshake);
+				System.out.println("Cliente conectado: " + socketCliente.getInetAddress());
 
-                String[] partes = handshake.split(":");
-                if (partes.length == 2) {
-                    String modo = partes[0];
-                    String tamanhoStr = partes[1];
+				String msgHandshakeCliente = leitorCliente.readLine();
+				System.out.println("Handshake recebido: " + msgHandshakeCliente);
 
-                    if ((modo.equals("individual") || modo.equals("grupo")) && tamanhoStr.matches("\\d+")) {
-                        int tamanhoMax = Integer.parseInt(tamanhoStr);
+				String[] dadosHandshake = msgHandshakeCliente.split(":");
+				if (dadosHandshake.length != 2
+						|| (!dadosHandshake[0].equals("individual") && !dadosHandshake[0].equals("grupo"))
+						|| !dadosHandshake[1].matches("\\d+")) {
+					escritorCliente.println("ERRO");
+					System.out.println("Handshake inválido.");
+					return;
+				}
 
-                        if (tamanhoMax > 0 && tamanhoMax <= 100) {
-                            System.out.println("Modo de operacao: " + modo);
-                            System.out.println("Tamanho máximo confirmado: " + tamanhoMax + " caracteres");
+				int limiteCargaUtil = Integer.parseInt(dadosHandshake[1]);
+				escritorCliente.println("OK");
+				System.out.println("Modo: " + dadosHandshake[0]);
+				System.out.println("Tamanho máximo: " + limiteCargaUtil);
 
-                            saida.println("OK:modo=" + modo + ";tamanho=" + tamanhoMax);
-                            System.out.println("Handshake confirmado com sucesso.");
-                        } else {
-                            saida.println("ERRO:Tamanho fora do intervalo permitido (1-100).");
-                            System.out.println("Erro no handshake: tamanho inválido.");
-                        }
-                    } else {
-                        saida.println("ERRO:modo invalido ou tamanho não numérico.");
-                        System.out.println("Erro no handshake: modo inválido ou tamanho não numérico.");
-                    }
-                } else {
-                    saida.println("ERRO:Formato invalido. Use 'modo:tamanho'.");
-                    System.out.println("Formato inválido de handshake.");
-                }
+				while (true) {
+					Map<Integer, String> bufferRecepcao = new TreeMap<>();
 
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+					while (true) {
+						String linhaRecebida = leitorCliente.readLine();
+
+						if (linhaRecebida == null)
+							break;
+
+						if ("FIM".equals(linhaRecebida)) {
+							System.out.println("Conexão encerrada pelo cliente.");
+							return;
+						}
+
+						if ("END".equals(linhaRecebida)) {
+
+							StringBuilder dadosCompletos = new StringBuilder();
+							for (String parte : bufferRecepcao.values()) {
+								dadosCompletos.append(parte);
+							}
+							System.out.println("Mensagem reconstruída (servidor): " + dadosCompletos.toString());
+							break;
+						}
+
+						System.out.println("Pacote recebido: " + linhaRecebida);
+
+						if (linhaRecebida.startsWith("SEQ:") && linhaRecebida.contains("|DATA:")) {
+							try {
+								String[] partesPacote = linhaRecebida.split("\\|DATA:");
+								String strSequencia = partesPacote[0].replace("SEQ:", "");
+								String payload = partesPacote[1];
+								int idPacote = Integer.parseInt(strSequencia.trim());
+
+								bufferRecepcao.put(idPacote, payload);
+
+								String msgConfirmacao = "ACK:" + idPacote;
+								escritorCliente.println(msgConfirmacao);
+							} catch (Exception e) {
+								System.out.println("Erro ao processar pacote: " + e.getMessage());
+							}
+						} else {
+							System.out.println("Pacote inválido: " + linhaRecebida);
+						}
+					}
+				}
+
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 }
