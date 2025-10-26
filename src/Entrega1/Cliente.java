@@ -6,143 +6,155 @@ import java.util.*;
 
 public class Cliente {
 
-	public static String exibirMenuModo(Scanner input) {
-		System.out.println("Escolha o modo de operação:");
-		System.out.println("1. Individual");
-		System.out.println("2. Grupo");
-		System.out.print("Escolha uma opção: ");
-		String escolha = input.nextLine().trim();
+    public static String exibirMenuModo(Scanner input) {
+        System.out.println("Escolha o modo de operação:");
+        System.out.println("1. Individual");
+        System.out.println("2. Grupo");
+        System.out.print("Escolha uma opção: ");
+        String escolha = input.nextLine().trim();
 
-		switch (escolha) {
-		case "1":
-			return "individual";
-		case "2":
-			return "grupo";
-		default:
-			System.out.println("Opção inválida. Usando modo padrão: individual.");
-			return "individual";
-		}
-	}
+        switch (escolha) {
+            case "1":
+                return "individual";
+            case "2":
+                return "grupo";
+            default:
+                System.out.println("Opção inválida. Usando modo padrão: individual.");
+                return "individual";
+        }
+    }
 
-	public static void main(String[] args) {
+    public static void main(String[] args) {
+        String hostServidor = "localhost";
+        int portaServidor = 1234;
 
-		String hostServidor = "localhost";
-		int portaServidor = 1234;
+        Scanner leitorConsole = new Scanner(System.in);
+        String tipoConexao = exibirMenuModo(leitorConsole);
 
-		Scanner leitorConsole = new Scanner(System.in);
-		String tipoConexao = exibirMenuModo(leitorConsole);
+        int tamanhoCargaUtil = 4; 
 
-		System.out.print("Digite o tamanho máximo (ex: 3): ");
-		int limiteFragmento = Integer.parseInt(leitorConsole.nextLine().trim());
+        try (Socket conexaoSocket = new Socket(hostServidor, portaServidor);
+             BufferedReader leitorSocket = new BufferedReader(new InputStreamReader(conexaoSocket.getInputStream()));
+             PrintWriter escritorSocket = new PrintWriter(conexaoSocket.getOutputStream(), true)) {
 
-		try (Socket conexaoSocket = new Socket(hostServidor, portaServidor);
-				BufferedReader leitorSocket = new BufferedReader(new InputStreamReader(conexaoSocket.getInputStream()));
-				PrintWriter escritorSocket = new PrintWriter(conexaoSocket.getOutputStream(), true)) {
+            System.out.println("Conectado ao servidor!");
+            
+            String dadosHandshake = tipoConexao; 
+            escritorSocket.println(dadosHandshake);
 
-			System.out.println("Conectado ao servidor!");
+            String respostaServidor = leitorSocket.readLine();
+            if (!"OK".equals(respostaServidor)) {
+                System.out.println("Handshake falhou.");
+                return;
+            }
 
-			String dadosHandshake = tipoConexao + ":" + limiteFragmento;
-			escritorSocket.println(dadosHandshake);
+            System.out.println("Handshake confirmado!");
 
-			String respostaServidor = leitorSocket.readLine();
-			if (!"OK".equals(respostaServidor)) {
-				System.out.println("Handshake falhou.");
-				return;
-			}
+            int numSequencia = 0;
 
-			System.out.println("Handshake confirmado!");
+            while (true) {
+                
+                String inputUsuario;
+                while (true) {
+                    System.out.print("\nDigite a mensagem (mín 30 caracteres) ou 'sair': ");
+                    inputUsuario = leitorConsole.nextLine();
+                    
+                    if (inputUsuario.equalsIgnoreCase("sair")) {
+                        break; 
+                    }
+                    if (inputUsuario.length() >= 30) {
+                        break; 
+                    }
+                    System.out.println("Erro: A mensagem deve ter no mínimo 30 caracteres.");
+                }
+                
+                if (inputUsuario.equalsIgnoreCase("sair")) {
+                    escritorSocket.println("FIM");
+                    break;
+                }
 
-			int numSequencia = 0;
+                if (tipoConexao.equals("individual")) {
+                    System.out.println("\nModo INDIVIDUAL:");
+                    Map<Integer, String> bufferMensagem = new TreeMap<>();
 
-			while (true) {
-				System.out.print("Digite a mensagem para enviar ao servidor (ou 'sair' para encerrar): ");
-				String inputUsuario = leitorConsole.nextLine();
+                    for (int i = 0; i < inputUsuario.length(); i += tamanhoCargaUtil) {
+                        int fim = Math.min(i + tamanhoCargaUtil, inputUsuario.length());
+                        String payload = inputUsuario.substring(i, fim);
+                        String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
 
-				if (inputUsuario.equalsIgnoreCase("sair")) {
-					escritorSocket.println("FIM");
-					break;
-				}
+                        escritorSocket.println(segmento);
+                        System.out.println("Enviado: " + segmento);
 
-				if (tipoConexao.equals("individual")) {
-					System.out.println("\nModo INDIVIDUAL:");
-					Map<Integer, String> bufferMensagem = new TreeMap<>();
+                        String confirmacao = leitorSocket.readLine();
+                        System.out.println("Recebido do servidor: " + confirmacao);
 
-					for (int i = 0; i < inputUsuario.length(); i += limiteFragmento) {
-						int fim = Math.min(i + limiteFragmento, inputUsuario.length());
-						String payload = inputUsuario.substring(i, fim);
-						String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
+                        bufferMensagem.put(numSequencia, payload);
+                        numSequencia++;
 
-						escritorSocket.println(segmento);
-						System.out.println("Enviado: " + segmento);
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
 
-						String confirmacao = leitorSocket.readLine();
-						System.out.println("Recebido do servidor: " + confirmacao);
+       
+                    escritorSocket.println("END");
 
-						bufferMensagem.put(numSequencia, payload);
-						numSequencia++;
+                    System.out.print("Mensagem reconstruída (cliente): ");
+                    for (String parte : bufferMensagem.values()) {
+                        System.out.print(parte);
+                    }
+                    System.out.println();
 
-						try {
-							Thread.sleep(500);
-						} catch (InterruptedException e) {
-							e.printStackTrace();
-						}
-					}
+                } else {
+                    System.out.println("\nModo GRUPO:");
+                    Map<Integer, String> mapPacotesEnviados = new TreeMap<>();
+                    List<Integer> listaSequencias = new ArrayList<>();
 
-					escritorSocket.println("END");
+                    for (int i = 0; i < inputUsuario.length(); i += tamanhoCargaUtil) {
+                        int fim = Math.min(i + tamanhoCargaUtil, inputUsuario.length());
+                        String payload = inputUsuario.substring(i, fim);
+                        String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
 
-					System.out.print("Mensagem reconstruída (cliente): ");
-					for (String parte : bufferMensagem.values()) {
-						System.out.print(parte);
-					}
-					System.out.println();
+                        escritorSocket.println(segmento);
+                        System.out.println("Enviado: " + segmento);
 
-				} else {
-					System.out.println("\nModo GRUPO:");
-					Map<Integer, String> mapPacotesEnviados = new TreeMap<>();
-					List<Integer> listaSequencias = new ArrayList<>();
+                        mapPacotesEnviados.put(numSequencia, payload);
+                        listaSequencias.add(numSequencia);
+                        numSequencia++;
+                    }
 
-					for (int i = 0; i < inputUsuario.length(); i += limiteFragmento) {
-						int fim = Math.min(i + limiteFragmento, inputUsuario.length());
-						String payload = inputUsuario.substring(i, fim);
-						String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
+                    System.out.println("Todos os pacotes foram enviados. Aguardando ACKs...\n");
 
-						escritorSocket.println(segmento);
-						System.out.println("Enviado: " + segmento);
+                    Map<Integer, String> mapPacotesConfirmados = new TreeMap<>();
+                    for (int i = 0; i < listaSequencias.size(); i++) {
+                        String confirmacao = leitorSocket.readLine();
+                        System.out.println("Recebido do servidor: " + confirmacao);
 
-						mapPacotesEnviados.put(numSequencia, payload);
-						listaSequencias.add(numSequencia);
-						numSequencia++;
-					}
+                        if (confirmacao != null && confirmacao.startsWith("ACK:")) {
+                            int seqConfirmada = Integer.parseInt(confirmacao.split(":")[1]);
+                            if (mapPacotesEnviados.containsKey(seqConfirmada)) {
+                                mapPacotesConfirmados.put(seqConfirmada, mapPacotesEnviados.get(seqConfirmada));
+                            }
+                        }
+                    }
 
-					System.out.println("Todos os pacotes foram enviados. Aguardando ACKs...\n");
+          
+                    escritorSocket.println("END");
 
-					Map<Integer, String> mapPacotesConfirmados = new TreeMap<>();
-					for (int i = 0; i < listaSequencias.size(); i++) {
-						String confirmacao = leitorSocket.readLine();
-						System.out.println("Recebido do servidor: " + confirmacao);
+                    System.out.print("Mensagem reconstruída (cliente): ");
+                    for (String parte : mapPacotesConfirmados.values()) {
+                        System.out.print(parte);
+                    }
+                    System.out.println();
+                }
+            }
 
-						if (confirmacao != null && confirmacao.startsWith("ACK:")) {
-							int seqConfirmada = Integer.parseInt(confirmacao.split(":")[1]);
-							if (mapPacotesEnviados.containsKey(seqConfirmada)) {
-								mapPacotesConfirmados.put(seqConfirmada, mapPacotesEnviados.get(seqConfirmada));
-							}
-						}
-					}
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
-					escritorSocket.println("END");
-
-					System.out.print("Mensagem reconstruída (cliente): ");
-					for (String parte : mapPacotesConfirmados.values()) {
-						System.out.print(parte);
-					}
-					System.out.println();
-				}
-			}
-
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		leitorConsole.close();
-	}
+        leitorConsole.close();
+    }
 }
