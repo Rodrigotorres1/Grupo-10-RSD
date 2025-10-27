@@ -50,9 +50,9 @@ public class Cliente {
 
             System.out.println("Handshake confirmado!");
 
-            int numSequencia = 0;
-
             while (true) {
+                
+                int numSequencia = 0; // <-- CORREÇÃO: Movido para dentro do loop
                 
                 String inputUsuario;
                 while (true) {
