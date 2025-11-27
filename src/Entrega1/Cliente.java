@@ -1,160 +1,215 @@
-package entrega2;
+package entrega3;
 
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
 
 public class Cliente {
 
-    public static String exibirMenuModo(Scanner input) {
-        System.out.println("Escolha o modo de operação:");
-        System.out.println("1. Individual");
-        System.out.println("2. Grupo");
-        System.out.print("Escolha uma opção: ");
-        String escolha = input.nextLine().trim();
-
-        switch (escolha) {
-            case "1":
-                return "individual";
-            case "2":
-                return "grupo";
-            default:
-                System.out.println("Opção inválida. Usando modo padrão: individual.");
-                return "individual";
-        }
-    }
+    private static final String CHAVE_SECRETA = "UmaChaveDe16Bytes"; 
+    private static final SecretKey CHAVE = new SecretKeySpec(CHAVE_SECRETA.getBytes(), "AES");
+    private static final String ALGORITMO_CRIPTOGRAFIA = "AES";
 
     public static void main(String[] args) {
-        String hostServidor = "localhost";
-        int portaServidor = 1234;
+        String enderecoServidor = "localhost";
+        int porta = 1234;
 
-        Scanner leitorConsole = new Scanner(System.in);
-        String tipoConexao = exibirMenuModo(leitorConsole);
+        Scanner scanner = new Scanner(System.in);
+        String modoOperacao = exibirMenuModo(scanner);
 
-        int tamanhoCargaUtil = 4; 
+        System.out.print("Digite o limite máximo de caracteres por mensagem (ex: 30): "); 
+        int limiteMensagem = Integer.parseInt(scanner.nextLine().trim());
+        if (limiteMensagem < 30) limiteMensagem = 30; 
+        
+        int tamanhoMaxPayload = 4;
 
-        try (Socket conexaoSocket = new Socket(hostServidor, portaServidor);
-             BufferedReader leitorSocket = new BufferedReader(new InputStreamReader(conexaoSocket.getInputStream()));
-             PrintWriter escritorSocket = new PrintWriter(conexaoSocket.getOutputStream(), true)) {
+        System.out.print("Pacote a ser corrompido (ou -1 para nenhum): ");
+        int seqParaCorromper = Integer.parseInt(scanner.nextLine().trim());
+        
+        System.out.print("Probabilidade de perda de pacote (0.0 a 1.0): ");
+        double probPerda = Double.parseDouble(scanner.nextLine().trim());
+
+        String mensagemHandshake = modoOperacao + ":" + limiteMensagem;
+
+        try (Socket socket = new Socket(enderecoServidor, porta);
+             BufferedReader entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             PrintWriter saida = new PrintWriter(socket.getOutputStream(), true)) {
 
             System.out.println("Conectado ao servidor!");
-            
-            String dadosHandshake = tipoConexao; 
-            escritorSocket.println(dadosHandshake);
+            saida.println(mensagemHandshake);
 
-            String respostaServidor = leitorSocket.readLine();
-            if (!"OK".equals(respostaServidor)) {
-                System.out.println("Handshake falhou.");
+            String resposta = entrada.readLine();
+            if (!resposta.startsWith("OK:")) {
+                System.out.println("Handshake falhou: " + resposta);
                 return;
             }
+            
+            int windowSize = Integer.parseInt(resposta.substring(3));
+            System.out.println("Handshake confirmado! Tamanho da Janela: " + windowSize);
 
-            System.out.println("Handshake confirmado!");
+            socket.setSoTimeout(1500);
 
             while (true) {
-                
-                int numSequencia = 0; // <-- CORREÇÃO: Movido para dentro do loop
-                
-                String inputUsuario;
-                while (true) {
-                    System.out.print("\nDigite a mensagem (mín 30 caracteres) ou 'sair': ");
-                    inputUsuario = leitorConsole.nextLine();
-                    
-                    if (inputUsuario.equalsIgnoreCase("sair")) {
-                        break; 
-                    }
-                    if (inputUsuario.length() >= 30) {
-                        break; 
-                    }
-                    System.out.println("Erro: A mensagem deve ter no mínimo 30 caracteres.");
-                }
-                
-                if (inputUsuario.equalsIgnoreCase("sair")) {
-                    escritorSocket.println("FIM");
+                System.out.print("\nDigite a mensagem (ou 'sair'): ");
+                String mensagemCompleta = scanner.nextLine();
+
+                if (mensagemCompleta.equalsIgnoreCase("sair")) {
+                    saida.println("FIM");
                     break;
                 }
+                
+                String mensagemAEnviar = mensagemCompleta.length() > limiteMensagem ? 
+                                        mensagemCompleta.substring(0, limiteMensagem) : 
+                                        mensagemCompleta;
 
-                if (tipoConexao.equals("individual")) {
-                    System.out.println("\nModo INDIVIDUAL:");
-                    Map<Integer, String> bufferMensagem = new TreeMap<>();
+                List<String> pacotesDados = new ArrayList<>();
+                for (int i = 0; i < mensagemAEnviar.length(); i += tamanhoMaxPayload) {
+                    int fim = Math.min(i + tamanhoMaxPayload, mensagemAEnviar.length());
+                    pacotesDados.add(mensagemAEnviar.substring(i, fim));
+                }
 
-                    for (int i = 0; i < inputUsuario.length(); i += tamanhoCargaUtil) {
-                        int fim = Math.min(i + tamanhoCargaUtil, inputUsuario.length());
-                        String payload = inputUsuario.substring(i, fim);
-                        String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
+                Map<Integer, String> pacotesEnviados = new HashMap<>();
+                Set<Integer> acked = new HashSet<>();
+                int base = 0;
+                int nextSeqNum = 0;
+                int totalPacotes = pacotesDados.size();
+                long startTime = 0;
 
-                        escritorSocket.println(segmento);
-                        System.out.println("Enviado: " + segmento);
-
-                        String confirmacao = leitorSocket.readLine();
-                        System.out.println("Recebido do servidor: " + confirmacao);
-
-                        bufferMensagem.put(numSequencia, payload);
-                        numSequencia++;
-
-                        try {
-                            Thread.sleep(500);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
+                while (base < totalPacotes) {
+                    
+                    while (nextSeqNum < base + windowSize && nextSeqNum < totalPacotes) {
+                        String dados = pacotesDados.get(nextSeqNum);
+                        
+                        String dadosCifrados = criptografar(dados);
+                        
+                        int checksum = calcularChecksum(dados); 
+                        
+                        String dadosCorrompidos = (nextSeqNum == seqParaCorromper) ? 
+                                                introduzirErro(dadosCifrados) : 
+                                                dadosCifrados;
+                        
+                        String pacote = "SEQ:" + nextSeqNum + "|DATA:" + dadosCorrompidos + "|CHK:" + checksum;
+                        
+                        if (Math.random() < probPerda) {
+                            System.out.println("SIMULAÇÃO: Pacote SEQ:" + nextSeqNum + " perdido (não enviado).");
+                        } else {
+                            saida.println(pacote);
+                            System.out.println("Enviado SEQ:" + nextSeqNum + " (Dados: " + dados + ")");
                         }
+
+                        if (base == nextSeqNum) {
+                            startTime = System.currentTimeMillis();
+                        }
+                        
+                        pacotesEnviados.put(nextSeqNum, dados);
+                        nextSeqNum++;
                     }
 
-       
-                    escritorSocket.println("END");
-
-                    System.out.print("Mensagem reconstruída (cliente): ");
-                    for (String parte : bufferMensagem.values()) {
-                        System.out.print(parte);
-                    }
-                    System.out.println();
-
-                } else {
-                    System.out.println("\nModo GRUPO:");
-                    Map<Integer, String> mapPacotesEnviados = new TreeMap<>();
-                    List<Integer> listaSequencias = new ArrayList<>();
-
-                    for (int i = 0; i < inputUsuario.length(); i += tamanhoCargaUtil) {
-                        int fim = Math.min(i + tamanhoCargaUtil, inputUsuario.length());
-                        String payload = inputUsuario.substring(i, fim);
-                        String segmento = "SEQ:" + numSequencia + "|DATA:" + payload;
-
-                        escritorSocket.println(segmento);
-                        System.out.println("Enviado: " + segmento);
-
-                        mapPacotesEnviados.put(numSequencia, payload);
-                        listaSequencias.add(numSequencia);
-                        numSequencia++;
-                    }
-
-                    System.out.println("Todos os pacotes foram enviados. Aguardando ACKs...\n");
-
-                    Map<Integer, String> mapPacotesConfirmados = new TreeMap<>();
-                    for (int i = 0; i < listaSequencias.size(); i++) {
-                        String confirmacao = leitorSocket.readLine();
-                        System.out.println("Recebido do servidor: " + confirmacao);
-
-                        if (confirmacao != null && confirmacao.startsWith("ACK:")) {
-                            int seqConfirmada = Integer.parseInt(confirmacao.split(":")[1]);
-                            if (mapPacotesEnviados.containsKey(seqConfirmada)) {
-                                mapPacotesConfirmados.put(seqConfirmada, mapPacotesEnviados.get(seqConfirmada));
+                    try {
+                        String ack = entrada.readLine();
+                        if (ack != null) {
+                            System.out.println("Recebido do servidor: " + ack);
+                            
+                            System.out.println("Metadados da Confirmação: Tipo=" + (ack.startsWith("ACK") ? "ACK" : "NACK") + ", Conteúdo=" + ack.substring(ack.indexOf(":") + 1));
+                            
+                            if (ack.startsWith("ACK:")) {
+                                int ackSeq = Integer.parseInt(ack.substring(4));
+                                
+                                if (modoOperacao.equals("grupo")) { 
+                                    base = ackSeq + 1;
+                                    if (base < nextSeqNum) {
+                                        startTime = System.currentTimeMillis();
+                                    }
+                                } else {
+                                    acked.add(ackSeq);
+                                    while (acked.contains(base)) {
+                                        base++;
+                                    }
+                                    if (base < nextSeqNum) {
+                                        startTime = System.currentTimeMillis(); 
+                                    }
+                                }
+                            } else if (ack.startsWith("NACK:")) {
+                                int nackSeq = Integer.parseInt(ack.substring(5));
+                                System.out.println("NACK recebido para SEQ:" + nackSeq + ".");
+                                
+                                if (modoOperacao.equals("grupo")) { 
+                                    nextSeqNum = base;
+                                } else {
+                                    nextSeqNum = nackSeq;
+                                }
+                                break; 
                             }
                         }
+                    } catch (SocketTimeoutException e) {
+                        System.out.println("\nTimeout! Reenviando pacotes a partir de SEQ:" + base);
+                        
+                        if (modoOperacao.equals("grupo")) { 
+                            nextSeqNum = base;
+                        } else {
+                            nextSeqNum = base; 
+                        }
+                        startTime = System.currentTimeMillis();
+                        continue;
+                    } catch (IOException e) {
+                        break; 
                     }
-
-          
-                    escritorSocket.println("END");
-
-                    System.out.print("Mensagem reconstruída (cliente): ");
-                    for (String parte : mapPacotesConfirmados.values()) {
-                        System.out.print(parte);
+                    
+                    if (System.currentTimeMillis() - startTime > 1500 && base < nextSeqNum) {
+                        throw new SocketTimeoutException();
                     }
-                    System.out.println();
                 }
+
+                saida.println("END");
+
+                System.out.print("\n--- Mensagem Reconstruída (Cliente, para verificação) ---\n");
+                for (String parte : pacotesDados) {
+                    System.out.print(parte);
+                }
+                System.out.println("\n----------------------------------------------------------");
             }
 
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Erro de comunicação: " + e.getMessage());
+        } catch (Exception e) {
+            System.err.println("Erro de criptografia/protocolo: " + e.getMessage());
+        } finally {
+            scanner.close();
         }
+    }
 
-        leitorConsole.close();
+    public static String exibirMenuModo(Scanner scanner) {
+        System.out.println("\nEscolha o modo de operação (Define o protocolo de retransmissão):");
+        System.out.println("1 - individual (Repetição Seletiva / Selective Repeat)");
+        System.out.println("2 - grupo (Go-Back-N)");
+        System.out.print("Opção: ");
+        String opcao = scanner.nextLine();
+
+        return opcao.equals("2") ? "grupo" : "individual";
+    }
+
+    public static int calcularChecksum(String dados) {
+        int soma = 0;
+        for (char c : dados.toCharArray()) {
+            soma += c;
+        }
+        return soma % 256;
+    }
+
+    public static String criptografar(String dados) throws Exception {
+        if (dados.isEmpty()) return "";
+        Cipher cipher = Cipher.getInstance(ALGORITMO_CRIPTOGRAFIA);
+        cipher.init(Cipher.ENCRYPT_MODE, CHAVE);
+        byte[] bytesCifrados = cipher.doFinal(dados.getBytes());
+        return Base64.getEncoder().encodeToString(bytesCifrados);
+    }
+    
+    public static String introduzirErro(String dadosCifrados) {
+        if (dadosCifrados.length() == 0) return dadosCifrados;
+        char[] chars = dadosCifrados.toCharArray();
+        chars[0] = 'Z';
+        return new String(chars);
     }
 }
