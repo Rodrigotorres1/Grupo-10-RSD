@@ -1,84 +1,155 @@
-package entrega2;
+package entrega3;
 
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
 
 public class Servidor {
+
+    private static final String CHAVE_SECRETA = "UmaChaveDe16Bytes"; 
+    private static final SecretKey CHAVE = new SecretKeySpec(CHAVE_SECRETA.getBytes(), "AES");
+    private static final String ALGORITMO_CRIPTOGRAFIA = "AES";
+
     public static void main(String[] args) {
-        int portaLocal = 1234;
+        int porta = 1234;
+        try (ServerSocket serverSocket = new ServerSocket(porta)) {
+            System.out.println("Servidor aguardando conexão na porta " + porta + "...");
+            
+            try (Socket socket = serverSocket.accept();
+                 BufferedReader entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                 PrintWriter saida = new PrintWriter(socket.getOutputStream(), true)) {
 
-        try (ServerSocket socketEscuta = new ServerSocket(portaLocal)) {
-            System.out.println("Servidor aguardando conexão na porta " + portaLocal + "...");
+                System.out.println("Cliente conectado: " + socket.getInetAddress());
 
-            try (Socket socketCliente = socketEscuta.accept();
-                 BufferedReader leitorCliente = new BufferedReader(new InputStreamReader(socketCliente.getInputStream()));
-                 PrintWriter escritorCliente = new PrintWriter(socketCliente.getOutputStream(), true)) {
+                String handshake = entrada.readLine();
+                System.out.println("Handshake recebido: " + handshake);
 
-                System.out.println("Cliente conectado: " + socketCliente.getInetAddress());
-
-                String msgHandshakeCliente = leitorCliente.readLine();
-                System.out.println("Handshake recebido: " + msgHandshakeCliente);
-
-                
-                String modoOperacao = msgHandshakeCliente; 
-
-                
-                if (modoOperacao == null || (!modoOperacao.equals("individual") && !modoOperacao.equals("grupo"))) {
-                    escritorCliente.println("ERRO");
-                    System.out.println("Handshake inválido. Modo desconhecido: " + modoOperacao);
+                String[] partes = handshake.split(":");
+                if (partes.length != 2 || (!partes[0].equals("individual") && !partes[0].equals("grupo")) || !partes[1].matches("\\d+")) {
+                    saida.println("ERRO");
+                    System.out.println("Handshake inválido.");
                     return;
                 }
 
+                String modoOperacao = partes[0];
+                int windowSize = 5; 
                 
-                int limiteCargaUtil = 4; 
-                escritorCliente.println("OK");
+                saida.println("OK:" + windowSize);
                 System.out.println("Modo: " + modoOperacao);
-                System.out.println("Tamanho máximo (fixo): " + limiteCargaUtil);
+                System.out.println("Tamanho da Janela (server): " + windowSize);
 
-     
+                Map<Integer, String> pacotesRecebidos = new TreeMap<>();
+                int expectedSeqNum = 0;
+                int lastAckSeqNum = -1;
+
+                boolean simularPerdaACK = Math.random() < 0.2;
+                if (simularPerdaACK) {
+                    System.out.println("Simulando perda de ACK com chance de 20% para a sessão.");
+                }
+
                 while (true) {
-                    Map<Integer, String> bufferRecepcao = new TreeMap<>();
+                    String pacote = entrada.readLine();
 
-                    while (true) {
-                        String linhaRecebida = leitorCliente.readLine();
+                    if (pacote == null) break;
 
-                        if (linhaRecebida == null) break;
+                    if ("FIM".equals(pacote)) {
+                        System.out.println("Conexão encerrada pelo cliente.");
+                        return;
+                    }
 
-                        if ("FIM".equals(linhaRecebida)) {
-                            System.out.println("Conexão encerrada pelo cliente.");
-                            return;
+                    if ("END".equals(pacote)) {
+                        StringBuilder mensagemReconstruida = new StringBuilder();
+                        for (String parte : pacotesRecebidos.values()) {
+                            mensagemReconstruida.append(parte);
                         }
+                        System.out.println("\n--- Mensagem Reconstruída (Servidor) ---");
+                        System.out.println(mensagemReconstruida.toString());
+                        System.out.println("---------------------------------------\n");
+                        continue;
+                    }
 
-                        if ("END".equals(linhaRecebida)) {
-                       
-                            StringBuilder dadosCompletos = new StringBuilder();
-                            for (String parte : bufferRecepcao.values()) {
-                                dadosCompletos.append(parte);
+                    System.out.println("\nPacote recebido: " + pacote);
+
+                    if (pacote.contains("SEQ:") && pacote.contains("|DATA:") && pacote.contains("|CHK:")) {
+                        try {
+                            String[] partesPacote = pacote.split("\\|");
+                            int seq = -1;
+                            String dadosCifrados = "";
+                            int chkCliente = -1;
+
+                            for (String parte : partesPacote) {
+                                if (parte.startsWith("SEQ:")) {
+                                    seq = Integer.parseInt(parte.substring(4));
+                                } else if (parte.startsWith("DATA:")) {
+                                    dadosCifrados = parte.substring(5);
+                                } else if (parte.startsWith("CHK:")) {
+                                    chkCliente = Integer.parseInt(parte.substring(4));
+                                }
                             }
-                            System.out.println("Mensagem reconstruída (servidor): " + dadosCompletos.toString());
-                            break;
-                        }
+                            
+                            String dadosDescriptografados = descriptografar(dadosCifrados); 
 
-                        System.out.println("Pacote recebido: " + linhaRecebida);
+                            int chkServidor = calcularChecksum(dadosDescriptografados);
 
-                        if (linhaRecebida.startsWith("SEQ:") && linhaRecebida.contains("|DATA:")) {
-                            try {
-                                String[] partesPacote = linhaRecebida.split("\\|DATA:");
-                                String strSequencia = partesPacote[0].replace("SEQ:", "");
-                                String payload = partesPacote[1];
-                                int idPacote = Integer.parseInt(strSequencia.trim());
+                            System.out.println("  SEQ: " + seq);
+                            System.out.println("  DATA (descifrada): " + dadosDescriptografados);
+                            System.out.println("  CHK recebido: " + chkCliente);
+                            System.out.println("  CHK calculado: " + chkServidor);
+                            
+                            String resposta = "";
 
-                                bufferRecepcao.put(idPacote, payload);
+                            if (chkCliente != chkServidor) {
+                                resposta = "NACK:" + seq; 
+                                System.out.println("Pacote SEQ:" + seq + " está corrompido (checksum inválido). NACK enviado.");
+                            } 
+                            
+                            else if (seq >= expectedSeqNum && seq < expectedSeqNum + windowSize) {
+                                pacotesRecebidos.put(seq, dadosDescriptografados);
+                                
+                                if (modoOperacao.equals("grupo")) { 
+                                    if (seq == expectedSeqNum) {
+                                        while (pacotesRecebidos.containsKey(expectedSeqNum)) {
+                                            expectedSeqNum++;
+                                        }
+                                        resposta = "ACK:" + (expectedSeqNum - 1);
+                                        System.out.println("Pacote válido (GBN). ACK cumulativo para: " + resposta);
+                                        lastAckSeqNum = expectedSeqNum - 1;
+                                    } else {
+                                        pacotesRecebidos.remove(seq);
+                                        resposta = "NACK:" + expectedSeqNum; 
+                                        System.out.println("Pacote fora de ordem (GBN). NACK para: " + expectedSeqNum);
+                                    }
+                                } else { 
+                                    resposta = "ACK:" + seq;
+                                    System.out.println("Pacote válido (SR). ACK enviado para: " + seq);
+                                    lastAckSeqNum = seq;
+                                    while (pacotesRecebidos.containsKey(expectedSeqNum)) {
+                                        expectedSeqNum++;
+                                    }
+                                }
 
-                                String msgConfirmacao = "ACK:" + idPacote;
-                                escritorCliente.println(msgConfirmacao);
-                            } catch (Exception e) {
-                                System.out.println("Erro ao processar pacote: " + e.getMessage());
+                                if (expectedSeqNum > lastAckSeqNum) {
+                                    System.out.println("Janela deslizou para: " + expectedSeqNum);
+                                }
+                                
+                            } else {
+                                resposta = "NACK:" + seq;
+                                System.out.println("Pacote SEQ:" + seq + " fora da janela. NACK enviado.");
                             }
-                        } else {
-                            System.out.println("Pacote inválido: " + linhaRecebida);
+
+                            if (Math.random() > 0.8 && simularPerdaACK) {
+                                System.out.println("SIMULAÇÃO: Confirmação '" + resposta + "' perdida (não enviada).");
+                            } else {
+                                saida.println(resposta);
+                            }
+
+                        } catch (Exception e) {
+                            System.out.println("Erro ao processar pacote: " + e.getMessage());
                         }
+                    } else {
+                        System.out.println("Pacote inválido: " + pacote);
                     }
                 }
 
@@ -86,5 +157,22 @@ public class Servidor {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public static int calcularChecksum(String dados) {
+        int soma = 0;
+        for (char c : dados.toCharArray()) {
+            soma += c;
+        }
+        return soma % 256;
+    }
+
+    public static String descriptografar(String dadosCifrados) throws Exception {
+        if (dadosCifrados.isEmpty()) return "";
+        Cipher cipher = Cipher.getInstance(ALGORITMO_CRIPTOGRAFIA);
+        cipher.init(Cipher.DECRYPT_MODE, CHAVE);
+        byte[] bytesCifrados = Base64.getDecoder().decode(dadosCifrados);
+        byte[] bytesDescriptografados = cipher.doFinal(bytesCifrados);
+        return new String(bytesDescriptografados);
     }
 }
