@@ -15,6 +15,7 @@ public class Cliente {
     public static void main(String[] args) {
         String enderecoServidor = "localhost";
         int porta = 1234;
+        final int TIMEOUT_MS = 2000;
 
         Scanner scanner = new Scanner(System.in);
         String modoOperacao = exibirMenuModo(scanner);
@@ -49,7 +50,7 @@ public class Cliente {
             int windowSize = Integer.parseInt(resposta.substring(3));
             System.out.println("Handshake confirmado! Tamanho da Janela: " + windowSize);
 
-            socket.setSoTimeout(1500);
+            socket.setSoTimeout(TIMEOUT_MS);
 
             while (true) {
                 System.out.print("\nDigite a mensagem (ou 'sair'): ");
@@ -112,14 +113,14 @@ public class Cliente {
                         if (ack != null) {
                             System.out.println("Recebido do servidor: " + ack);
                             
-                            System.out.println("Metadados da Confirmação: Tipo=" + (ack.startsWith("ACK") ? "ACK" : "NACK") + ", Conteúdo=" + ack.substring(ack.indexOf(":") + 1));
-                            
                             if (ack.startsWith("ACK:")) {
                                 int ackSeq = Integer.parseInt(ack.substring(4));
                                 
                                 if (modoOperacao.equals("grupo")) { 
-                                    base = ackSeq + 1;
-                                    if (base < nextSeqNum) {
+                                    if (ackSeq >= base) {
+                                        base = ackSeq + 1;
+                                    }
+                                    if (base < totalPacotes) {
                                         startTime = System.currentTimeMillis();
                                     }
                                 } else {
@@ -127,38 +128,30 @@ public class Cliente {
                                     while (acked.contains(base)) {
                                         base++;
                                     }
-                                    if (base < nextSeqNum) {
+                                    if (base < totalPacotes) {
                                         startTime = System.currentTimeMillis(); 
                                     }
                                 }
                             } else if (ack.startsWith("NACK:")) {
                                 int nackSeq = Integer.parseInt(ack.substring(5));
-                                System.out.println("NACK recebido para SEQ:" + nackSeq + ".");
+                                System.out.println("NACK recebido para SEQ:" + nackSeq + ". Preparando reenvio.");
                                 
                                 if (modoOperacao.equals("grupo")) { 
-                                    nextSeqNum = base;
+                                    nextSeqNum = base; 
                                 } else {
-                                    nextSeqNum = nackSeq;
+                                    nextSeqNum = nackSeq; 
                                 }
-                                break; 
+                                startTime = System.currentTimeMillis(); 
                             }
                         }
                     } catch (SocketTimeoutException e) {
                         System.out.println("\nTimeout! Reenviando pacotes a partir de SEQ:" + base);
                         
-                        if (modoOperacao.equals("grupo")) { 
-                            nextSeqNum = base;
-                        } else {
-                            nextSeqNum = base; 
-                        }
+                        nextSeqNum = base; 
                         startTime = System.currentTimeMillis();
                         continue;
                     } catch (IOException e) {
                         break; 
-                    }
-                    
-                    if (System.currentTimeMillis() - startTime > 1500 && base < nextSeqNum) {
-                        throw new SocketTimeoutException();
                     }
                 }
 
