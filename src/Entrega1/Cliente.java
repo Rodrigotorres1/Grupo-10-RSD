@@ -11,6 +11,9 @@ public class Cliente {
     private static final String CHAVE_SECRETA = "ChaveSecreta1234"; 
     private static final SecretKey CHAVE = new SecretKeySpec(CHAVE_SECRETA.getBytes(), "AES");
     private static final String ALGORITMO_CRIPTOGRAFIA = "AES";
+    
+    private static final Set<Integer> PACOTES_CORROMPIDOS_INJETADOS = new HashSet<>();
+    private static final Set<Integer> PACOTES_PARA_PERDER_INJETADOS = new HashSet<>();
 
     public static void main(String[] args) {
         String enderecoServidor = "localhost";
@@ -20,17 +23,29 @@ public class Cliente {
         Scanner scanner = new Scanner(System.in);
         String modoOperacao = exibirMenuModo(scanner);
 
-        System.out.print("Digite o limite máximo de caracteres por mensagem (ex: 30): ");
+        System.out.print("Digite o limite maximo de caracteres por mensagem (ex: 30): ");
         int limiteMensagem = Integer.parseInt(scanner.nextLine().trim());
         if (limiteMensagem < 30) limiteMensagem = 30;
         
         int tamanhoMaxPayload = 4;
 
-        System.out.print("Pacote a ser corrompido (ou -1 para nenhum): ");
+        System.out.print("Pacote a ser corrompido (ou -1, NENHUM): ");
         int seqParaCorromper = Integer.parseInt(scanner.nextLine().trim());
         
-        System.out.print("Probabilidade de perda de pacote (0.0 a 1.0): ");
-        double probPerda = Double.parseDouble(scanner.nextLine().trim());
+        System.out.print("Pacotes a serem perdidos (separados por virgula, ou -1, NENHUM): ");
+        String perdasInput = scanner.nextLine().trim();
+        
+        if (!perdasInput.equals("-1") && !perdasInput.isEmpty()) {
+            try {
+                String[] sequencias = perdasInput.split(",");
+                for (String seq : sequencias) {
+                    PACOTES_PARA_PERDER_INJETADOS.add(Integer.parseInt(seq.trim()));
+                }
+            } catch (NumberFormatException e) {
+                System.out.println("Aviso: Formato de pacotes a perder invalido. Nenhuma perda deterministica sera aplicada.");
+            }
+        }
+        
 
         String mensagemHandshake = modoOperacao + ":" + limiteMensagem;
 
@@ -62,8 +77,8 @@ public class Cliente {
                 }
                 
                 String mensagemAEnviar = mensagemCompleta.length() > limiteMensagem ?
-                                         mensagemCompleta.substring(0, limiteMensagem) :
-                                         mensagemCompleta;
+                                             mensagemCompleta.substring(0, limiteMensagem) :
+                                             mensagemCompleta;
 
                 List<String> pacotesDados = new ArrayList<>();
                 for (int i = 0; i < mensagemAEnviar.length(); i += tamanhoMaxPayload) {
@@ -77,80 +92,130 @@ public class Cliente {
                 int nextSeqNum = 0;
                 int totalPacotes = pacotesDados.size();
                 long startTime = 0;
+                
+                PACOTES_CORROMPIDOS_INJETADOS.clear();
 
                 while (base < totalPacotes) {
                     
-                    while (nextSeqNum < base + windowSize && nextSeqNum < totalPacotes) {
-                        String dados = pacotesDados.get(nextSeqNum);
+                    int tempSeqNum = nextSeqNum;
+                    while (tempSeqNum < base + windowSize && tempSeqNum < totalPacotes) {
+                        
+                        if (modoOperacao.equals("individual") && acked.contains(tempSeqNum)) {
+                            tempSeqNum++;
+                            continue;
+                        }
+
+                        String dados = pacotesDados.get(tempSeqNum);
                         
                         String dadosCifrados = criptografar(dados);
                         
                         int checksum = calcularChecksum(dados);
                         
-                        String dadosCorrompidos = (nextSeqNum == seqParaCorromper) ?
-                                                  introduzirErro(dadosCifrados) :
-                                                  dadosCifrados;
+                        String dadosCorrompidos = dadosCifrados;
+                        boolean isRetransmissao = pacotesEnviados.containsKey(tempSeqNum);
                         
-                        String pacote = "SEQ:" + nextSeqNum + "|DATA:" + dadosCorrompidos + "|CHK:" + checksum;
+                        if (tempSeqNum == seqParaCorromper && !PACOTES_CORROMPIDOS_INJETADOS.contains(tempSeqNum)) {
+                            dadosCorrompidos = introduzirErro(dadosCifrados);
+                            PACOTES_CORROMPIDOS_INJETADOS.add(tempSeqNum);
+                            System.out.println("SIMULACAO: Erro introduzido no pacote SEQ:" + tempSeqNum + ".");
+                        }
                         
-                        if (Math.random() < probPerda) {
-                            System.out.println("SIMULAÇÃO: Pacote SEQ:" + nextSeqNum + " perdido (não enviado).");
+                        String pacote = "SEQ:" + tempSeqNum + "|DATA:" + dadosCorrompidos + "|CHK:" + checksum;
+                        
+                        if (PACOTES_PARA_PERDER_INJETADOS.contains(tempSeqNum) && !isRetransmissao) {
+                            System.out.println("SIMULACAO: Pacote SEQ:" + tempSeqNum + " perdido (nao enviado).");
+                            PACOTES_PARA_PERDER_INJETADOS.remove(tempSeqNum);
                         } else {
                             saida.println(pacote);
-                            System.out.println("Enviado SEQ:" + nextSeqNum + " (Dados: " + dados + ")");
+                            
+                            if (isRetransmissao) {
+                                System.out.println("Retransmitindo SEQ:" + tempSeqNum);
+                            }
                         }
 
-                        if (base == nextSeqNum) {
+                        if (base == tempSeqNum) {
                             startTime = System.currentTimeMillis();
                         }
                         
-                        pacotesEnviados.put(nextSeqNum, dados);
-                        nextSeqNum++;
+                        pacotesEnviados.put(tempSeqNum, dados);
+                        
+                        if (tempSeqNum == nextSeqNum) {
+                            nextSeqNum++;
+                        }
+                        tempSeqNum++;
                     }
 
+                    long tempoDecorrido = System.currentTimeMillis() - startTime;
+                    if (base < nextSeqNum && tempoDecorrido >= TIMEOUT_MS) {
+                        System.out.println("\nTIMEOUT! Reenviando pacotes a partir de SEQ:" + base);
+                        
+                        if (modoOperacao.equals("individual")) {
+                            int pacoteParaRetransmitir = -1;
+                            for (int i = base; i < totalPacotes && i < base + windowSize; i++) {
+                                if (!acked.contains(i)) {
+                                    pacoteParaRetransmitir = i;
+                                    break;
+                                }
+                            }
+                            
+                            if (pacoteParaRetransmitir != -1) {
+                                nextSeqNum = pacoteParaRetransmitir; 
+                            } else {
+                                nextSeqNum = base; 
+                            }
+
+                        } else { 
+                            nextSeqNum = base;
+                        }
+
+                        startTime = System.currentTimeMillis();
+                        continue;
+                    }
+                    
                     try {
                         String ack = entrada.readLine();
-                        if (ack != null) {
-                            System.out.println("Recebido do servidor: " + ack);
+                        
+                        if (ack == null) break;
+
+                        System.out.println("ACK/NACK Recebido: " + ack);
+                        
+                        if (ack.startsWith("ACK:")) {
+                            int ackSeq = Integer.parseInt(ack.substring(4));
                             
-                            if (ack.startsWith("ACK:")) {
-                                int ackSeq = Integer.parseInt(ack.substring(4));
-                                
-                                if (modoOperacao.equals("grupo")) {
-                                    if (ackSeq >= base) {
-                                        base = ackSeq + 1;
-                                    }
-                                    if (base < totalPacotes) {
-                                        startTime = System.currentTimeMillis();
-                                    }
-                                } else {
-                                    acked.add(ackSeq);
-                                    while (acked.contains(base)) {
+                            if (modoOperacao.equals("grupo")) {
+                                if (ackSeq >= base) {
+                                    System.out.println("Janela GBN: Nova Base em " + (ackSeq + 1) + " (ACKs 0-" + ackSeq + " confirmados).");
+                                    base = ackSeq + 1;
+                                    startTime = System.currentTimeMillis();
+                                }
+                            } else {
+                                acked.add(ackSeq);
+                                if (ackSeq == base) {
+                                     while (acked.contains(base)) {
+                                        acked.remove(base);
                                         base++;
                                     }
-                                    if (base < totalPacotes) {
-                                        startTime = System.currentTimeMillis();
-                                    }
+                                    System.out.println("Janela SR: Nova Base em " + base + " (ACKs 0-" + (base-1) + " confirmados).");
+                                    startTime = System.currentTimeMillis();
                                 }
-                            } else if (ack.startsWith("NACK:")) {
-                                int nackSeq = Integer.parseInt(ack.substring(5));
-                                System.out.println("NACK recebido para SEQ:" + nackSeq + ". Preparando reenvio.");
-                                
-                                if (modoOperacao.equals("grupo")) {
-                                    nextSeqNum = base;
-                                } else {
-                                    nextSeqNum = nackSeq;
-                                }
+                            }
+                            
+                        } else if (ack.startsWith("NACK:")) {
+                            int nackSeq = Integer.parseInt(ack.substring(5));
+                            System.out.println("NACK recebido para SEQ:" + nackSeq + ". Preparando reenvio.");
+                            
+                            if (modoOperacao.equals("grupo")) {
+                                nextSeqNum = base;
                                 startTime = System.currentTimeMillis();
-                                continue;
+                            } else {
+                                if (!acked.contains(nackSeq)) {
+                                     nextSeqNum = nackSeq;
+                                     startTime = System.currentTimeMillis();
+                                }
                             }
                         }
                     } catch (SocketTimeoutException e) {
-                        System.out.println("\nTimeout! Reenviando pacotes a partir de SEQ:" + base);
                         
-                        nextSeqNum = base;
-                        startTime = System.currentTimeMillis();
-                        continue;
                     } catch (IOException e) {
                         break;
                     }
@@ -158,7 +223,7 @@ public class Cliente {
 
                 saida.println("END");
 
-                System.out.print("\n--- Mensagem Reconstruída (Cliente, para verificação) ---\n");
+                System.out.print("\n--- Mensagem Reconstruida (Cliente, para verificacao) ---\n");
                 for (String parte : pacotesDados) {
                     System.out.print(parte);
                 }
@@ -166,7 +231,7 @@ public class Cliente {
             }
 
         } catch (IOException e) {
-            System.err.println("Erro de comunicação: " + e.getMessage());
+            System.err.println("Erro de comunicacao: " + e.getMessage());
         } catch (Exception e) {
             System.err.println("Erro de criptografia/protocolo: " + e.getMessage());
         } finally {
@@ -175,10 +240,10 @@ public class Cliente {
     }
 
     public static String exibirMenuModo(Scanner scanner) {
-        System.out.println("\nEscolha o modo de operação (Define o protocolo de retransmissão):");
-        System.out.println("1 - individual (Repetição Seletiva / Selective Repeat)");
+        System.out.println("\nEscolha o modo de operacao (Define o protocolo de retransmissao):");
+        System.out.println("1 - individual (Repeticao Seletiva / Selective Repeat)");
         System.out.println("2 - grupo (Go-Back-N)");
-        System.out.print("Opção: ");
+        System.out.print("Opcao: ");
         String opcao = scanner.nextLine();
 
         return opcao.equals("2") ? "grupo" : "individual";
