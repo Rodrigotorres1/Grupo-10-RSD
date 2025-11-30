@@ -8,7 +8,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class Servidor {
 
-    private static final String CHAVE_SECRETA = "UmaChaveDe16Bytes"; 
+
+    private static final String CHAVE_SECRETA = "ChaveSecreta1234"; 
     private static final SecretKey CHAVE = new SecretKeySpec(CHAVE_SECRETA.getBytes(), "AES");
     private static final String ALGORITMO_CRIPTOGRAFIA = "AES";
 
@@ -34,7 +35,7 @@ public class Servidor {
                 }
 
                 String modoOperacao = partes[0];
-                int windowSize = 5; 
+                int windowSize = 5;
                 
                 saida.println("OK:" + windowSize);
                 System.out.println("Modo: " + modoOperacao);
@@ -92,7 +93,7 @@ public class Servidor {
                                 }
                             }
                             
-                            String dadosDescriptografados = descriptografar(dadosCifrados); 
+                            String dadosDescriptografados = descriptografar(dadosCifrados);
 
                             int chkServidor = calcularChecksum(dadosDescriptografados);
 
@@ -104,14 +105,14 @@ public class Servidor {
                             String resposta = "";
 
                             if (chkCliente != chkServidor) {
-                                resposta = "NACK:" + seq; 
+                                resposta = "NACK:" + seq;
                                 System.out.println("Pacote SEQ:" + seq + " está corrompido (checksum inválido). NACK enviado.");
-                            } 
+                            }
                             
                             else if (seq >= expectedSeqNum && seq < expectedSeqNum + windowSize) {
                                 pacotesRecebidos.put(seq, dadosDescriptografados);
                                 
-                                if (modoOperacao.equals("grupo")) { 
+                                if (modoOperacao.equals("grupo")) {
                                     if (seq == expectedSeqNum) {
                                         while (pacotesRecebidos.containsKey(expectedSeqNum)) {
                                             pacotesRecebidos.remove(expectedSeqNum);
@@ -121,11 +122,11 @@ public class Servidor {
                                         System.out.println("Pacote válido (GBN). ACK cumulativo para: " + resposta);
                                         lastAckSeqNum = expectedSeqNum - 1;
                                     } else {
-                                        resposta = "ACK:" + (expectedSeqNum - 1); 
+                                        resposta = "ACK:" + lastAckSeqNum; // Envia o ACK do último pacote em ordem
                                         System.out.println("Pacote fora de ordem (GBN). Enviando ACK para último aceito: " + resposta);
                                         pacotesRecebidos.remove(seq);
                                     }
-                                } else { 
+                                } else {
                                     resposta = "ACK:" + seq;
                                     System.out.println("Pacote válido (SR). ACK enviado para: " + seq);
                                     lastAckSeqNum = seq;
