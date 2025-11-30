@@ -91,9 +91,9 @@ O cliente solicitará ao usuário:
 
 ## Relatório
 
-O relatório técnico detalha a lógica e a justificação das escolhas de implementação.
+O relatório técnico detalha a lógica e a justificação das escolhas de implementação. Você pode acessá-lo diretamente:
 
-[Relatório Código Infraestrutura de Comunicação - G10 (2).pdf](https://github.com/user-attachments/files/23841037/Relatorio.Codigo.Infraestrutura.de.Comunicacao.-.G10.2.pdf)
+[Relatório G10 - RSD (PDF)](https://github.com/user-attachments/files/23841037/Relatorio.Codigo.Infraestrutura.de.Comunicacao.-.G10.2.pdf)
 
 ---
 
