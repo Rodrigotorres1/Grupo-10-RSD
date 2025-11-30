@@ -122,10 +122,10 @@ public class Servidor {
                                         System.out.println("Pacote válido (GBN). ACK cumulativo para: " + resposta);
                                         lastAckSeqNum = expectedSeqNum - 1;
                                     } else {
-                                        resposta = "ACK:" + lastAckSeqNum; // Envia o ACK do último pacote em ordem
-                                        System.out.println("Pacote fora de ordem (GBN). Enviando ACK para último aceito: " + resposta);
-                                        pacotesRecebidos.remove(seq);
-                                    }
+                                        resposta = "ACK:" + (expectedSeqNum - 1);
+                                          System.out.println("Pacote fora de ordem (GBN). Enviando ACK para último aceito: " + resposta);
+                                           pacotesRecebidos.remove(seq);
+                                         }
                                 } else {
                                     resposta = "ACK:" + seq;
                                     System.out.println("Pacote válido (SR). ACK enviado para: " + seq);
