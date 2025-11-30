@@ -8,7 +8,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class Cliente {
 
-    private static final String CHAVE_SECRETA = "UmaChaveDe16Bytes"; 
+    private static final String CHAVE_SECRETA = "ChaveSecreta1234"; 
     private static final SecretKey CHAVE = new SecretKeySpec(CHAVE_SECRETA.getBytes(), "AES");
     private static final String ALGORITMO_CRIPTOGRAFIA = "AES";
 
@@ -20,9 +20,9 @@ public class Cliente {
         Scanner scanner = new Scanner(System.in);
         String modoOperacao = exibirMenuModo(scanner);
 
-        System.out.print("Digite o limite máximo de caracteres por mensagem (ex: 30): "); 
+        System.out.print("Digite o limite máximo de caracteres por mensagem (ex: 30): ");
         int limiteMensagem = Integer.parseInt(scanner.nextLine().trim());
-        if (limiteMensagem < 30) limiteMensagem = 30; 
+        if (limiteMensagem < 30) limiteMensagem = 30;
         
         int tamanhoMaxPayload = 4;
 
@@ -61,9 +61,9 @@ public class Cliente {
                     break;
                 }
                 
-                String mensagemAEnviar = mensagemCompleta.length() > limiteMensagem ? 
-                                        mensagemCompleta.substring(0, limiteMensagem) : 
-                                        mensagemCompleta;
+                String mensagemAEnviar = mensagemCompleta.length() > limiteMensagem ?
+                                         mensagemCompleta.substring(0, limiteMensagem) :
+                                         mensagemCompleta;
 
                 List<String> pacotesDados = new ArrayList<>();
                 for (int i = 0; i < mensagemAEnviar.length(); i += tamanhoMaxPayload) {
@@ -85,11 +85,11 @@ public class Cliente {
                         
                         String dadosCifrados = criptografar(dados);
                         
-                        int checksum = calcularChecksum(dados); 
+                        int checksum = calcularChecksum(dados);
                         
-                        String dadosCorrompidos = (nextSeqNum == seqParaCorromper) ? 
-                                                introduzirErro(dadosCifrados) : 
-                                                dadosCifrados;
+                        String dadosCorrompidos = (nextSeqNum == seqParaCorromper) ?
+                                                  introduzirErro(dadosCifrados) :
+                                                  dadosCifrados;
                         
                         String pacote = "SEQ:" + nextSeqNum + "|DATA:" + dadosCorrompidos + "|CHK:" + checksum;
                         
@@ -116,7 +116,7 @@ public class Cliente {
                             if (ack.startsWith("ACK:")) {
                                 int ackSeq = Integer.parseInt(ack.substring(4));
                                 
-                                if (modoOperacao.equals("grupo")) { 
+                                if (modoOperacao.equals("grupo")) {
                                     if (ackSeq >= base) {
                                         base = ackSeq + 1;
                                     }
@@ -129,29 +129,30 @@ public class Cliente {
                                         base++;
                                     }
                                     if (base < totalPacotes) {
-                                        startTime = System.currentTimeMillis(); 
+                                        startTime = System.currentTimeMillis();
                                     }
                                 }
                             } else if (ack.startsWith("NACK:")) {
                                 int nackSeq = Integer.parseInt(ack.substring(5));
                                 System.out.println("NACK recebido para SEQ:" + nackSeq + ". Preparando reenvio.");
                                 
-                                if (modoOperacao.equals("grupo")) { 
-                                    nextSeqNum = base; 
+                                if (modoOperacao.equals("grupo")) {
+                                    nextSeqNum = base;
                                 } else {
-                                    nextSeqNum = nackSeq; 
+                                    nextSeqNum = nackSeq;
                                 }
-                                startTime = System.currentTimeMillis(); 
+                                startTime = System.currentTimeMillis();
+                                continue;
                             }
                         }
                     } catch (SocketTimeoutException e) {
                         System.out.println("\nTimeout! Reenviando pacotes a partir de SEQ:" + base);
                         
-                        nextSeqNum = base; 
+                        nextSeqNum = base;
                         startTime = System.currentTimeMillis();
                         continue;
                     } catch (IOException e) {
-                        break; 
+                        break;
                     }
                 }
 
