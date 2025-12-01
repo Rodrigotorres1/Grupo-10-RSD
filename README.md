@@ -93,7 +93,7 @@ O cliente solicitará ao usuário:
 
 O relatório técnico detalha a lógica e a justificação das escolhas de implementação. Você pode acessá-lo diretamente:
 
-[Relatorio G10 - RSD.pdf](https://github.com/user-attachments/files/23841492/Relatorio.G10.-.RSD.pdf)
+[Relatorio G10 - RSD.pdf](https://docs.google.com/document/d/1Ikjq8RfbwtClo8PQ8ACg8_VbEVUkg9unv098GVAu-fs/edit?usp=sharing)
 
 ---
 
