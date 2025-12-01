@@ -36,7 +36,7 @@ public class Servidor {
 
                 String modoOperacao = partes[0];
                 
-                int windowSize = 1 + new Random().nextInt(5);
+                int windowSize = 5; 
                 
                 saida.println("OK:" + windowSize);
                 System.out.println("Modo: " + modoOperacao);
@@ -99,6 +99,14 @@ public class Servidor {
                         String dadosDescriptografados = descriptografar(dadosCifrados);
                         int chkServidor = calcularChecksum(dadosDescriptografados);
                         String resposta = "";
+
+                        // EXIBIÇÃO DE METADADOS
+                        System.out.println("\n--- METADADOS RECEBIDOS (SEQ:" + seq + ") ---");
+                        System.out.println("Seq Num: " + seq);
+                        System.out.println("Payload (bytes): " + dadosDescriptografados.getBytes().length);
+                        System.out.println("Payload (chars): " + dadosDescriptografados.length());
+                        System.out.println("--- FIM METADADOS ---");
+
 
                         // 1. CHECKSUM INVALIDO
                         if (chkCliente != chkServidor) {
