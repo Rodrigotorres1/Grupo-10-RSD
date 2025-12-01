@@ -53,7 +53,7 @@ public class Cliente {
             seqParaCorromper = Integer.parseInt(scanner.nextLine().trim());
         }
         
-        // Processa a lista de perdas se a opção 2 foi escolhida
+       
         if (!perdasInput.equals("-1") && !perdasInput.isEmpty()) {
             try {
                 String[] sequencias = perdasInput.split(",");
@@ -64,7 +64,7 @@ public class Cliente {
                 System.out.println("Aviso: Formato de pacotes a perder invalido. Nenhuma perda deterministica sera aplicada.");
             }
         }
-        // --- FIM NOVO MENU ---
+     
 
         String mensagemHandshake = modoOperacao + ":" + limiteMensagem;
 
