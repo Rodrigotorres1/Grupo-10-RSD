@@ -23,18 +23,37 @@ public class Cliente {
         Scanner scanner = new Scanner(System.in);
         String modoOperacao = exibirMenuModo(scanner);
 
-        System.out.print("Digite o limite maximo de caracteres por mensagem (ex: 30): ");
+        System.out.print("Digite o limite de caracteres (minimo 30, ex: 50): ");
         int limiteMensagem = Integer.parseInt(scanner.nextLine().trim());
-        if (limiteMensagem < 30) limiteMensagem = 30;
+        
+        if (limiteMensagem < 30) {
+            System.out.println("Aviso: O limite minimo de 30 caracteres sera utilizado.");
+            limiteMensagem = 30;
+        } 
         
         int tamanhoMaxPayload = 4;
 
-        System.out.print("Pacote a ser corrompido (ou -1, NENHUM): ");
-        int seqParaCorromper = Integer.parseInt(scanner.nextLine().trim());
+        // --- NOVO MENU DE SIMULAÇÃO DE FALHAS ---
+        int seqParaCorromper = -1;
+        String perdasInput = "-1";
         
-        System.out.print("Pacotes a serem perdidos (separados por virgula, ou -1, NENHUM): ");
-        String perdasInput = scanner.nextLine().trim();
+        System.out.println("\nComo você quer que a comunicação ocorra?");
+        System.out.println("1 - COMUNICACAO SEGURA (Sem perdas/erros determinísticos)");
+        System.out.println("2 - SIMULAR PERDA DE PACOTE(S)");
+        System.out.println("3 - SIMULAR PACOTE CORROMPIDO");
+        System.out.print("Opção: ");
         
+        String opcaoFalha = scanner.nextLine().trim();
+
+        if (opcaoFalha.equals("2")) {
+            System.out.print("Pacotes a serem perdidos (separados por virgula): ");
+            perdasInput = scanner.nextLine().trim();
+        } else if (opcaoFalha.equals("3")) {
+            System.out.print("Pacote a ser corrompido: ");
+            seqParaCorromper = Integer.parseInt(scanner.nextLine().trim());
+        }
+        
+        // Processa a lista de perdas se a opção 2 foi escolhida
         if (!perdasInput.equals("-1") && !perdasInput.isEmpty()) {
             try {
                 String[] sequencias = perdasInput.split(",");
@@ -45,7 +64,7 @@ public class Cliente {
                 System.out.println("Aviso: Formato de pacotes a perder invalido. Nenhuma perda deterministica sera aplicada.");
             }
         }
-        
+        // --- FIM NOVO MENU ---
 
         String mensagemHandshake = modoOperacao + ":" + limiteMensagem;
 
@@ -74,6 +93,11 @@ public class Cliente {
                 if (mensagemCompleta.equalsIgnoreCase("sair")) {
                     saida.println("FIM");
                     break;
+                }
+                
+                if (mensagemCompleta.length() < 30) {
+                    System.out.println("ERRO: A mensagem digitada deve ter no minimo 30 caracteres para ser enviada.");
+                    continue; 
                 }
                 
                 String mensagemAEnviar = mensagemCompleta.length() > limiteMensagem ?
@@ -117,13 +141,13 @@ public class Cliente {
                         if (tempSeqNum == seqParaCorromper && !PACOTES_CORROMPIDOS_INJETADOS.contains(tempSeqNum)) {
                             dadosCorrompidos = introduzirErro(dadosCifrados);
                             PACOTES_CORROMPIDOS_INJETADOS.add(tempSeqNum);
-                            System.out.println("SIMULACAO: Erro introduzido no pacote SEQ:" + tempSeqNum + ".");
+                            System.out.println("SIMULACAO: ERRO DE INTEGRIDADE introduzido no pacote SEQ:" + tempSeqNum + ".");
                         }
                         
                         String pacote = "SEQ:" + tempSeqNum + "|DATA:" + dadosCorrompidos + "|CHK:" + checksum;
                         
                         if (PACOTES_PARA_PERDER_INJETADOS.contains(tempSeqNum) && !isRetransmissao) {
-                            System.out.println("SIMULACAO: Pacote SEQ:" + tempSeqNum + " perdido (nao enviado).");
+                            System.out.println("SIMULACAO: PERDA DE PACOTE SEQ:" + tempSeqNum + " (nao enviado).");
                             PACOTES_PARA_PERDER_INJETADOS.remove(tempSeqNum);
                         } else {
                             saida.println(pacote);
